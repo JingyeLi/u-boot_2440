@@ -1,13 +1,14 @@
+/* SPDX-License-Identifier: BSD-3-Clause */
 /*
  * This file is part of the libpayload project.
  *
  * Copyright (C) 2008 Advanced Micro Devices, Inc.
- *
- * SPDX-License-Identifier:	BSD-3-Clause
  */
 
 #ifndef _COREBOOT_TABLES_H
 #define _COREBOOT_TABLES_H
+
+struct memory_area;
 
 struct cbuint64 {
 	u32 lo;
@@ -96,6 +97,25 @@ struct cb_serial {
 	u32 type;
 	u32 baseaddr;
 	u32 baud;
+	u32 regwidth;
+
+	/*
+	 * Crystal or input frequency to the chip containing the UART.
+	 * Provide the board specific details to allow the payload to
+	 * initialize the chip containing the UART and make independent
+	 * decisions as to which dividers to select and their values
+	 * to eventually arrive at the desired console baud-rate.
+	 */
+	u32 input_hertz;
+
+	/*
+	 * UART PCI address: bus, device, function
+	 * 1 << 31 - Valid bit, PCI UART in use
+	 * Bus << 20
+	 * Device << 15
+	 * Function << 12
+	 */
+	u32 uart_pci_addr;
 };
 
 #define CB_TAG_CONSOLE			0x0010
@@ -322,5 +342,12 @@ void *high_table_malloc(size_t bytes);
  * @cfg_tables:	pointer to configuration table memory area
  */
 void write_coreboot_table(u32 addr, struct memory_area *cfg_tables);
+
+/**
+ * locate_coreboot_table() - Try to find coreboot tables at standard locations
+ *
+ * @return address of table that was found, or -ve error number
+ */
+long locate_coreboot_table(void);
 
 #endif

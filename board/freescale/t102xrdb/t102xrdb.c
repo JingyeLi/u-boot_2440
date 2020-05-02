@@ -1,12 +1,14 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright 2014 Freescale Semiconductor, Inc.
- *
- * SPDX-License-Identifier:     GPL-2.0+
  */
 
 #include <common.h>
 #include <command.h>
+#include <env.h>
+#include <fdt_support.h>
 #include <i2c.h>
+#include <init.h>
 #include <netdev.h>
 #include <linux/compiler.h>
 #include <asm/mmu.h>
@@ -75,7 +77,7 @@ int checkboard(void)
 		printf("NOR vBank%d\n", reg);
 	}
 #elif defined(CONFIG_TARGET_T1023RDB)
-#ifdef CONFIG_NAND
+#ifdef CONFIG_MTD_RAW_NAND
 	puts("NAND\n");
 #else
 	printf("NOR vBank%d\n", t1023rdb_ctrl(I2C_GET_BANK));
@@ -167,6 +169,13 @@ unsigned long get_board_ddr_clk(void)
 	return CONFIG_DDR_CLK_FREQ;
 }
 
+#ifdef CONFIG_TARGET_T1024RDB
+void board_reset(void)
+{
+	CPLD_WRITE(reset_ctl1, CPLD_LBMAP_RESET);
+}
+#endif
+
 int misc_init_r(void)
 {
 	return 0;
@@ -179,8 +188,8 @@ int ft_board_setup(void *blob, bd_t *bd)
 
 	ft_cpu_setup(blob, bd);
 
-	base = getenv_bootm_low();
-	size = getenv_bootm_size();
+	base = env_get_bootm_low();
+	size = env_get_bootm_size();
 
 	fdt_fixup_memory(blob, (u64)base, (u64)size);
 

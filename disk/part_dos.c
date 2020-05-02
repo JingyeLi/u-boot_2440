@@ -1,9 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * (C) Copyright 2001
  * Raymond Lo, lo@routefree.com
  * Wolfgang Denk, DENX Software Engineering, wd@denx.de.
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 /*
@@ -20,9 +19,13 @@
 #include <memalign.h>
 #include "part_dos.h"
 
-#ifdef HAVE_BLOCK_DEVICE
+#ifdef CONFIG_HAVE_BLOCK_DEVICE
 
 #define DOS_PART_DEFAULT_SECTOR 512
+
+/* should this be configurable? It looks like it's not very common at all
+ * to use large numbers of partitions */
+#define MAX_EXT_PARTS 256
 
 /* Convert char[4] in little endian format to the host format integer
  */
@@ -42,9 +45,15 @@ static inline int is_extended(int part_type)
 	    part_type == 0x85);
 }
 
-static inline int is_bootable(dos_partition_t *p)
+static int get_bootable(dos_partition_t *p)
 {
-	return p->boot_ind == 0x80;
+	int ret = 0;
+
+	if (p->sys_ind == 0xef)
+		ret |= PART_EFI_SYSTEM_PARTITION;
+	if (p->boot_ind == 0x80)
+		ret |= PART_BOOTABLE;
+	return ret;
 }
 
 static void print_one_part(dos_partition_t *p, lbaint_t ext_part_sector,
@@ -57,38 +66,65 @@ static void print_one_part(dos_partition_t *p, lbaint_t ext_part_sector,
 		"u\t%08x-%02x\t%02x%s%s\n",
 		part_num, lba_start, lba_size, disksig, part_num, p->sys_ind,
 		(is_extended(p->sys_ind) ? " Extd" : ""),
-		(is_bootable(p) ? " Boot" : ""));
+		(get_bootable(p) ? " Boot" : ""));
 }
 
 static int test_block_type(unsigned char *buffer)
 {
 	int slot;
 	struct dos_partition *p;
+	int part_count = 0;
 
 	if((buffer[DOS_PART_MAGIC_OFFSET + 0] != 0x55) ||
 	    (buffer[DOS_PART_MAGIC_OFFSET + 1] != 0xaa) ) {
 		return (-1);
 	} /* no DOS Signature at all */
 	p = (struct dos_partition *)&buffer[DOS_PART_TBL_OFFSET];
-	for (slot = 0; slot < 3; slot++) {
-		if (p->boot_ind != 0 && p->boot_ind != 0x80) {
-			if (!slot &&
-			    (strncmp((char *)&buffer[DOS_PBR_FSTYPE_OFFSET],
-				     "FAT", 3) == 0 ||
-			     strncmp((char *)&buffer[DOS_PBR32_FSTYPE_OFFSET],
-				     "FAT32", 5) == 0)) {
-				return DOS_PBR; /* is PBR */
-			} else {
-				return -1;
-			}
-		}
-	}
-	return DOS_MBR;	    /* Is MBR */
-}
 
+	/* Check that the boot indicators are valid and count the partitions. */
+	for (slot = 0; slot < 4; ++slot, ++p) {
+		if (p->boot_ind != 0 && p->boot_ind != 0x80)
+			break;
+		if (p->sys_ind)
+			++part_count;
+	}
+
+	/*
+	 * If the partition table is invalid or empty,
+	 * check if this is a DOS PBR
+	 */
+	if (slot != 4 || !part_count) {
+		if (!strncmp((char *)&buffer[DOS_PBR_FSTYPE_OFFSET],
+			     "FAT", 3) ||
+		    !strncmp((char *)&buffer[DOS_PBR32_FSTYPE_OFFSET],
+			     "FAT32", 5))
+			return DOS_PBR; /* This is a DOS PBR and not an MBR */
+	}
+	if (slot == 4)
+		return DOS_MBR;	/* This is an DOS MBR */
+
+	/* This is neither a DOS MBR nor a DOS PBR */
+	return -1;
+}
 
 static int part_test_dos(struct blk_desc *dev_desc)
 {
+#ifndef CONFIG_SPL_BUILD
+	ALLOC_CACHE_ALIGN_BUFFER(legacy_mbr, mbr,
+			DIV_ROUND_UP(dev_desc->blksz, sizeof(legacy_mbr)));
+
+	if (blk_dread(dev_desc, 0, 1, (ulong *)mbr) != 1)
+		return -1;
+
+	if (test_block_type((unsigned char *)mbr) != DOS_MBR)
+		return -1;
+
+	if (dev_desc->sig_type == SIG_TYPE_NONE &&
+	    mbr->unique_mbr_signature != 0) {
+		dev_desc->sig_type = SIG_TYPE_MBR;
+		dev_desc->mbr_sig = mbr->unique_mbr_signature;
+	}
+#else
 	ALLOC_CACHE_ALIGN_BUFFER(unsigned char, buffer, dev_desc->blksz);
 
 	if (blk_dread(dev_desc, 0, 1, (ulong *)buffer) != 1)
@@ -96,6 +132,7 @@ static int part_test_dos(struct blk_desc *dev_desc)
 
 	if (test_block_type(buffer) != DOS_MBR)
 		return -1;
+#endif
 
 	return 0;
 }
@@ -110,6 +147,13 @@ static void print_partition_extended(struct blk_desc *dev_desc,
 	ALLOC_CACHE_ALIGN_BUFFER(unsigned char, buffer, dev_desc->blksz);
 	dos_partition_t *pt;
 	int i;
+
+	/* set a maximum recursion level */
+	if (part_num > MAX_EXT_PARTS)
+	{
+		printf("** Nested DOS partitions detected, stopping **\n");
+		return;
+    }
 
 	if (blk_dread(dev_desc, ext_part_sector, 1, (ulong *)buffer) != 1) {
 		printf ("** Can't read partition table on %d:" LBAFU " **\n",
@@ -176,6 +220,13 @@ static int part_get_info_extended(struct blk_desc *dev_desc,
 	int i;
 	int dos_type;
 
+	/* set a maximum recursion level */
+	if (part_num > MAX_EXT_PARTS)
+	{
+		printf("** Nested DOS partitions detected, stopping **\n");
+		return -1;
+    }
+
 	if (blk_dread(dev_desc, ext_part_sector, 1, (ulong *)buffer) != 1) {
 		printf ("** Can't read partition table on %d:" LBAFU " **\n",
 			dev_desc->devnum, ext_part_sector);
@@ -189,7 +240,7 @@ static int part_get_info_extended(struct blk_desc *dev_desc,
 		return -1;
 	}
 
-#ifdef CONFIG_PARTITION_UUIDS
+#if CONFIG_IS_ENABLED(PARTITION_UUIDS)
 	if (!ext_part_sector)
 		disksig = le32_to_int(&buffer[DOS_PART_DISKSIG_OFFSET]);
 #endif
@@ -204,7 +255,7 @@ static int part_get_info_extended(struct blk_desc *dev_desc,
 		if (((pt->boot_ind & ~0x80) == 0) &&
 		    (pt->sys_ind != 0) &&
 		    (part_num == which_part) &&
-		    (is_extended(pt->sys_ind) == 0)) {
+		    (ext_part_sector == 0 || is_extended(pt->sys_ind) == 0)) {
 			info->blksz = DOS_PART_DEFAULT_SECTOR;
 			info->start = (lbaint_t)(ext_part_sector +
 					le32_to_int(pt->start4));
@@ -213,10 +264,11 @@ static int part_get_info_extended(struct blk_desc *dev_desc,
 					      (char *)info->name);
 			/* sprintf(info->type, "%d, pt->sys_ind); */
 			strcpy((char *)info->type, "U-Boot");
-			info->bootable = is_bootable(pt);
-#ifdef CONFIG_PARTITION_UUIDS
+			info->bootable = get_bootable(pt);
+#if CONFIG_IS_ENABLED(PARTITION_UUIDS)
 			sprintf(info->uuid, "%08x-%02x", disksig, part_num);
 #endif
+			info->sys_ind = pt->sys_ind;
 			return 0;
 		}
 
@@ -249,7 +301,7 @@ static int part_get_info_extended(struct blk_desc *dev_desc,
 		info->blksz = DOS_PART_DEFAULT_SECTOR;
 		info->bootable = 0;
 		strcpy((char *)info->type, "U-Boot");
-#ifdef CONFIG_PARTITION_UUIDS
+#if CONFIG_IS_ENABLED(PARTITION_UUIDS)
 		info->uuid[0] = 0;
 #endif
 		return 0;

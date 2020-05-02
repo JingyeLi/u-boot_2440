@@ -1,7 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright 2011-2015 Freescale Semiconductor, Inc.
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 #include <errno.h>
 #include <common.h>
@@ -16,6 +15,7 @@
 
 #include "fm.h"
 
+#ifndef CONFIG_DM_ETH
 struct fm_eth_info fm_info[] = {
 #if (CONFIG_SYS_NUM_FM1_DTSEC >= 1)
 	FM_DTSEC_INFO_INITIALIZER(1, 1),
@@ -329,7 +329,8 @@ void fdt_fixup_fman_ethernet(void *blob)
 				ft_fixup_port(blob, &fm_info[i],
 					      "fsl,fman-1g-mac");
 		} else {
-			if (ft_fixup_port(blob, &fm_info[i], "fsl,fman-tgec"))
+			if (ft_fixup_port(blob, &fm_info[i], "fsl,fman-xgec") &&
+			    ft_fixup_port(blob, &fm_info[i], "fsl,fman-tgec"))
 				ft_fixup_port(blob, &fm_info[i],
 					      "fsl,fman-10g-mac");
 		}
@@ -380,3 +381,4 @@ int is_qsgmii_riser_card(struct mii_dev *bus, int phy_base_addr,
 
 	return 0;
 }
+#endif /* CONFIG_DM_ETH */
