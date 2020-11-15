@@ -538,6 +538,10 @@ config TARGET_EDB93XX
 	select CPU_ARM920T
 	select PL010_SERIAL
 
+config TARGET_MINI2440
+	bool "Support mini2440"
+	select CPU_ARM920T
+
 config TARGET_ASPENITE
 	bool "Support aspenite"
 	select CPU_ARM926EJS
@@ -1894,6 +1898,7 @@ source "board/hisilicon/hikey960/Kconfig"
 source "board/hisilicon/poplar/Kconfig"
 source "board/isee/igep003x/Kconfig"
 source "board/phytec/pcm051/Kconfig"
+source "board/samsung/mini2440/Kconfig"
 source "board/silica/pengwyn/Kconfig"
 source "board/spear/spear300/Kconfig"
 source "board/spear/spear310/Kconfig"
