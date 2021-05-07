@@ -83,7 +83,7 @@ copyex:
 	orr	r1, r1, #0xc0000000		/* 设置为“asynchronous bus mode” */
 	mcr	p15, 0, r1, c1, c0, 0		/* 写入控制寄存器 */
 
-	/* MPLLCON = S3C2440_MPLL_405MHZ */
+	/* MPLLCON = S3C2440_MPLL_400MHZ */
 	ldr r0, =MPLLCON
 	ldr r1, =S3C2440_MPLL_400MHZ
 	str r1, [r0]
